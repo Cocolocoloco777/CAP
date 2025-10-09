@@ -1,0 +1,127 @@
+\subsubsection{Suma de elementos al cuadrado con MPI}
+
+Realizamos tres versiones distintas del programa dependiendo de las funciones que utilizamos para distribuir y converger los datos. En la primera versión utilizamos las funciones de $MPI\_{Send}$ y $MPI\_{Recv}$, mientras que en la segunda versión utilizamos las funciones $MPI\_{Scatter}$ y $MPI\_{Gather}$. Por último, en la tercera versión utilizamos $MPI\_{Scatter}$ y $MPI\_{Reduce}$ que permite sumar todos los valores recogidos directamente. El código de las tres versiones se adjuntarán la carpeta de entrega.\\
+
+El código es compatible con el ejercicio 7, donde se mide la velocidad de ejecución, ya que tiene secciones de código diferenciadas. Para el ejercicio 5 utilizamos la bandera debug \verb|-DDEBUG| que imprime por pantalla cada acción y que nodo la realiza, así como el resultado de la suma y la suma calculada por un solo proceso, para comprobar que los cálculos son correctos. Por otra parte, si compilamos con la bandera time \verb|-DTIME| todos los mensajes por pantalla desaparecen, ya que pueden influir en la medida del tiempo y medimos el tiempo que tarda el nodo maestro en computar la suma total. 
+
+\paragraph{Programa 1}
+En esta versión utilizamos las funciones de \verb|MPI_Send| y \verb|MPI_Recv| para distribuir los datos.
+El programa está separado en tres partes diferenciadas, el código común, el código del proceso maestro y el de los trabajadores. El código maestro se encuentra encapsulado en cláusulas \verb|if (num_local == 0)| mientras que el de los trabajadores se encuentran después, en las cláusulas \verb|else|. Veamos cada una de las partes en mayor detalle.
+
+\textbf{Código común}: Se encuentra al principio y al final del código; se encarga de inicializar el entorno MPI, coger el tamaño del array de los argumentos del programa, calcular el tamaño de la partición y al final se encarga de finalizar el entorno MPI.
+
+\textbf{Proceso maestro}: El proceso maestro se encarga de inicializar el array de datos, mandar una partición a los nodos trabajadores, computar la última porción del array, recibir los datos computados de cada uno de los trabajadores y sumar el resultado. Cabe destacar que si el tamaño del array no es divisible por el número de nodos, entonces el nodo maestro será el encargado de computar el sobrante.
+Para enviar las particiones del array hemos utilizado la función \verb|MPI_Send| de la siguiente manera:
+
+\begin{lstlisting}[style=bashstyle]
+for (int i = 0; i < num_procs - 1; i++){
+    MPI_Send(array + partition_size * i, partition_size, MPI_DOUBLE, i + 1, SEND, MPI_COMM_WORLD);        
+}
+\end{lstlisting}
+Argumentos de la función \verb|MPI_Send| explicados:
+\begin{enumerate}
+    \item \verb|array + partition_size * i|: Puntero a la partición a enviar
+    \item \verb|partition_size|: Tamaño de la partición a enviar
+    \item \verb|MPI_DOUBLE|: Tipo de dato, en este caso \verb|double|
+    \item \verb|i + 1|: Destinatario, empieza en 1 ya que el 0 es el proceso maestro
+    \item \verb|SEND|: Etiqueta, hemos creado una enumeracion propia para distinguir mensajes que envía o recibe el proceso maestro, en este caso como el mensaje ha sido enviado por el maestro, ponemos \verb|SEND|
+    \item \verb|MPI_COMM_WORLD|: Grupo de procesos, en este caso significa que incluye a todos los procesos
+    
+\end{enumerate}
+
+Para recibir los datos ya computados de los trabajadores hemos utilizado la función \verb|MPI_Recv| de la siguiente manera:
+
+\begin{lstlisting}[style=bashstyle]
+for (int i = 0; i < num_procs - 1; i++){
+
+    /* Receives a message */
+    MPI_Status status;
+    MPI_Recv(&value_received, 1, MPI_DOUBLE, MPI_ANY_SOURCE, RECEIVE, MPI_COMM_WORLD, &status);
+
+    /* Sums the values */
+    computed_value += value_received;
+    }
+\end{lstlisting}
+
+Básicamente escuchamos cualquier mensaje de cualquier fuente que tenga la etiqueta \verb|RECEIVE|, esto aumenta la eficienta ya que no se queda esperando a recibir los datos de un proceso cuando alguno en la lista ya ha terminado y puede recibirlo.
+
+Argumentos de la función \verb|MPI_Recv| explicados:
+\begin{enumerate}
+    \item \verb|&value_received|: Dirección de memoria donde escribir el valor recibido.
+    \item \verb|1|: Tamaño de los datos a recibir, en este caso 1.
+    \item \verb|MPI_DOUBLE|: Tipo de dato, en este caso \verb|double|
+    \item \verb|MPI_ANY_SOURCE|: Destinatario, empieza en 1 ya que el 0 es el proceso maestro e indica a que trabajador manda cada partición
+    \item \verb|RECEIVE|: Etiqueta, hemos creado una enumeracion propia para distinguir mensajes que envía o recibe el proceso maestro, en este caso como el mensaje lo recibe el maestro, ponemos \verb|RECEIVE|
+    \item \verb|MPI_COMM_WORLD|: Grupo de procesos, en este caso significa que incluye a todos los procesos
+    \item \verb|&status|: Status, dirección de memoria a una estructura status que contiene información sobre el mensaje, la utilizamos para imprimir la fuente del mensaje por pantalla.
+    
+\end{enumerate}
+
+\textbf{Proceso trabajador}: El proceso trabajador se encarga de recibir una partición de datos desde el proceso maestro, computar la suma de cuadrados sobre la partición recibida y enviar los datos de vuelta.
+
+Para recibir la partición utilizamos la función \verb|MPI_Recv| de la siguiente manera:
+
+\begin{lstlisting}[style=bashstyle]
+MPI_Recv(array_received, partition_size, MPI_DOUBLE, 0, SEND, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+\end{lstlisting}
+
+Argumentos de la función \verb|MPI_Recv| explicados:
+\begin{enumerate}
+    \item \verb|array_received|: Puntero al array donde escribir los datos recibidos
+    \item \verb|partition_size|: Tamaño de la partición a recibir
+    \item \verb|MPI_DOUBLE|: Tipo de dato, en este caso \verb|double|
+    \item \verb|0|: Remitente, es 0 ya que el mensaje ha sido enviado desde el maestro
+    \item \verb|SEND|: Etiqueta, hemos creado una enumeracion propia para distinguir mensajes que envía o recibe el proceso maestro, en este caso como el mensaje ha sido enviado por el maestro, ponemos \verb|SEND|
+    \item \verb|MPI_COMM_WORLD|: Grupo de procesos, en este caso significa que incluye a todos los procesos
+    \item \verb|MPI_STATUS_IGNORE|: Status, en este caso, como no lo utilizamos, ponemos el argumento de ignorar
+    
+\end{enumerate}
+
+Para enviar el dato ya computado de vuelta al maestro utilizamos la función \verb|MPI_Send| de la siguiente manera:
+
+\begin{lstlisting}[style=bashstyle]
+MPI_Send(&computed_value, 1, MPI_DOUBLE, 0, RECEIVE, MPI_COMM_WORLD);
+\end{lstlisting}
+
+Argumentos de la función \verb|MPI_Send| explicados:
+\begin{enumerate}
+    \item \verb|&computed_value|: Dirección de memoria del resultado a enviar (es equivalente a un array de tamaño 1)
+    \item \verb|1|: Tamaño de los datos a enviar, como en este caso solo vamos a enviar un número, es 1
+    \item \verb|MPI_DOUBLE|: Tipo de dato, en este caso \verb|double|
+    \item \verb|0|: Destinatario, en este caso es 0 ya que lo enviamos al proceso maestro
+    \item \verb|RECEIVE|: Etiqueta, hemos creado una enumeracion propia para distinguir mensajes que envía o recibe el proceso maestro, en este caso como el mensaje lo recibe el maestro, ponemos \verb|RECEIVE|
+    \item \verb|MPI_COMM_WORLD|: Grupo de procesos, en este caso significa que incluye a todos los procesos
+    
+\end{enumerate}
+
+\paragraph{Programa 1}
+En esta versión utilizamos las funciones de \verb|MPI_Scatterv| y \verb|MPI_Gather| para distribuir los datos.
+De la misma manera que en el programa anterior, este está separado en tres partes diferenciadas, el código común, el código del proceso maestro y el de los trabajadores.
+
+\textbf{Código común}: El código común aumenta con respecto al programa anterior. Este sigue inicializando y finalizando el entorno MPI al igual que tomar de los argumentos el tamaño del array y calcular el tamaño de la partición. Sumado a todo eso, también se encarga de distribuir el array de datos, computarlo y recoger los resultados. Esto se consigue mediante las funciones de \verb|MPI_Scatterv| y \verb|MPI_Gather|, veamolas en más profundidad:
+
+\textbf{\verb|MPI_Scatterv|}: Esta función se encarga de distribuir un conjunto de datos alrededor de todos los procesos. Es equivalente a que el proceso master haga N - 1 \verb|MPI_Send| y cada trabajador hace un \verb|MPI_Recv| Esta función es ligeramente distinta a la inicialmente utilizada \verb|MPI_Scatter| debido a que cuando el tamaño del array no divide al número de procesos involucrados, sucede que no se puede repartir equitativamente los datos entre procesos, por lo tanto no es ideal. \verb|MPI_Scatterv| nos permite pasar como parámetro un array de tamaños que son los tamaños de las particiones, por lo tanto podemos tener particiones de distinto tamaño y computar los datos de manera correcta. La hemos utilizado de la siguiente manera:
+
+\begin{lstlisting}[style=bashstyle]
+/* Allocate memory for the receiving array */
+array_received = malloc((partition_size + ((num_local < array_size % num_procs) ? 1 : 0)) * sizeof(double));
+
+/* Scatter the data, it sends to all the nodes a partition of the data, it is stored in array received and have partition_size length */
+MPI_Scatterv(array, sendcounts, displacement, MPI_DOUBLE, array_received, (partition_size + ((num_local < array_size % num_procs) ? 1 : 0)), MPI_DOUBLE, 0, MPI_COMM_WORLD); 
+\end{lstlisting}
+
+Lo primero de todo los nodos necesitan reservar un array para recibir la partición, este array puede ser de tamaño \verb|partition_size| o \verb|partition_size + 1|, de ahí el operador ternario.
+
+Los argumentos de la función \verb|MPI_Scatterv| son los siguientes:
+\begin{enumerate}
+    \item \verb|array|: Puntero al array que mandar
+    \item \verb|sendcounts|: Puntero al array que contiene cada tamaño de la partición
+    \item \verb|displacement|: Puntero al array que contiene cada offset de la partición, es decir, contiene donde empieza cada partición
+    \item \verb|MPI_DOUBLE|: Tipo de dato a enviar, en este caso \verb|double|
+    \item \verb|array_received|: Puntero al array donde van a ser escritos los datos
+    \item \verb|(partition_size + ((num_local < array_size % num_procs) ? 1 : 0))|: Es el tamaño de la partición a recibir, puede ser de tamaño \verb|partition_size| o \verb|partition_size + 1|, de ahí el operador ternario.
+    \item \verb|MPI_DOUBLE|: Tipo de dato a recibir, en este caso \verb|double|
+    \item \verb|0|: Proceso que actua como maéstro, en nuestro caso, el 0.
+    \item \verb|MPI_COMM_WORLD|: Grupo de procesos, en este caso significa que incluye a todos los procesos
+    
+\end{enumerate}

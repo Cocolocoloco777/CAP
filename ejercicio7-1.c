@@ -1,21 +1,3 @@
-/**
- * @file ejercicio5-1.c
- * @brief MPI program that computes the cuadratic sum of a randomly generated 
- * array using the MPI_Send and MPI_Recv functions
- * 
- * To compile it:
- * - If you want debug prints that shows how the computation is being carried:
- *      mpicc -DDEBUG -o ejercicio5-1 ejercicio5-1.c
- * - If you want to just see the time it takes to compute:
- *      mpicc -DTIME -o ejercicio5-1 ejercicio5-1.c
- * 
- * To execute it:
- * - If you want to compute an array of custom size (N long):
- *      ./ejercicio5-1 N
- * - If you want the default array size of 1000000:
- *      ./ejercicio5-1
- */
-
 #include "mpi.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,20 +23,11 @@ int main(int argc, char *argv[])
     double value_received;
     double *array_received = NULL;
 
-    #ifdef TIME
-    double initial_time, final_time;
-    #endif
-
     /* Init the MPI interface*/
     MPI_Init (&argc,&argv);
     MPI_Comm_size (MPI_COMM_WORLD, &num_procs);
     MPI_Comm_rank (MPI_COMM_WORLD, &num_local);
     MPI_Get_processor_name(mach_name,&mach_len);
-
-    #ifdef DEBUG
-    fprintf(stderr, "[Node %d] Number of processes: %d\n", num_local, num_procs);
-    fflush(stderr);
-    #endif
 
     /* Get the size of the array from the arguments*/
     if (argc < 2){
@@ -90,6 +63,7 @@ int main(int argc, char *argv[])
   
     if(num_local == 0){
         /* This code is exclusive to the master */
+        double initial_time, final_time;
 
         /* Allocate memory for the input array */
         array = malloc(array_size * sizeof(double));
@@ -107,36 +81,17 @@ int main(int argc, char *argv[])
             array[i] = (double) rand() / (double) RAND_MAX;
         }
 
-        #ifdef DEBUG
-        fprintf(stderr, "[Node 0] Array of size %d created, total sum: %lf\n",array_size, compute(array, array_size));
-        fflush(stderr);
-        #endif
-
-        #ifdef TIME
         /* Start measuring time */
         initial_time = MPI_Wtime();
-        #endif
 
         /* Sends a partition of the array to all the nodes except itself */
         for (int i = 0; i < num_procs - 1; i++){
-            
-
             MPI_Send(array + partition_size * i, partition_size, MPI_DOUBLE, i + 1, SEND, MPI_COMM_WORLD);
-            #ifdef DEBUG
-            fprintf(stderr, "[Node 0] Sent array portion [%d-%d] to process %d\n",partition_size * i, partition_size * (i + 1), i);
-            fflush(stderr);
-            #endif
         }
 
         /* Computes its partition (The master always get the last partition that may vary in size 
         if the number of processes doesnt divide the size of the array) */
         computed_value = compute(array + partition_size * (num_procs - 1), array_size - (partition_size * (num_procs - 1)));
-        
-
-        #ifdef DEBUG
-        fprintf(stderr, "[Node 0] Partition computed %lf\n", computed_value);
-        fflush(stderr);
-        #endif
         
         free(array);
 
@@ -149,12 +104,14 @@ int main(int argc, char *argv[])
 
             /* Sums the values */
             computed_value += value_received;
-            #ifdef DEBUG
-            fprintf(stderr, "[Node 0] Value %lf received from %d\n", value_received, status.MPI_SOURCE);
-            fflush(stderr);
-            #endif
         }
 
+        /* Stop measuring time */
+        final_time = MPI_Wtime();
+
+        /* Print the time elapsed */
+        printf("%lf\n", (final_time - initial_time) * 1000);
+ 
 
     } else {
         /* This code is exclusive to the followers */
@@ -175,32 +132,12 @@ int main(int argc, char *argv[])
         
         /* Computes the partition */
         computed_value = compute(array_received, partition_size);
-        #ifdef DEBUG
-        fprintf(stderr, "[Node %d] Partition computed (%lf)\n", num_local, computed_value);
-        fflush(stderr);
-        #endif
         free(array_received);
 
         /* Sends back the result */
         MPI_Send(&computed_value, 1, MPI_DOUBLE, 0, RECEIVE, MPI_COMM_WORLD);
     }
 
-    /* Print the final value */
-    if (num_local == 0){
-        #ifdef DEBUG
-        fprintf(stderr, "[Node 0] Computation completed %lf\n", computed_value);
-        #endif
-        fflush(stderr);
-
-        #ifdef TIME
-        /* Stop measuring time */
-        final_time = MPI_Wtime();
-
-        /* Print the time elapsed */
-        printf("[Node 0] Time: %lf, computed value: %lf\n", (final_time - initial_time) * 1000, computed_value);
-        #endif
-    }
-    
     /* Finalizes the MPI interface */
     MPI_Finalize();
     return 0;
