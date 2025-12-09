@@ -4,15 +4,31 @@
  * 
  * To compile it:
  * - If you want debug prints that shows how the computation is being carried:
- *      mpicc -DDEBUG -o ejercicio5-1 ejercicio5-1.c
- * - If you want to just see the time it takes to compute:
- *      mpicc -DTIME -o ejercicio5-1 ejercicio5-1.c
+ *      mpicc -DDEBUG -o dynamic_simulation.out dynamic_simulation.c
  * 
  * To execute it:
- * - If you want to compute an array of custom size (N long):
- *      ./ejercicio5-1 N
- * - If you want the default array size of 1000000:
- *      ./ejercicio5-1
+ *  ./dinamic_simulation.out <n_tasks> <type_tasks> <scheduler> <first_parameter_scheduler> <second_parameter_scheduler>
+ *  
+ *  Arguments:
+ *      - ntasks: integer that specifies the number of tasks to simulate
+ *      - type_tasks: string that specifies the duration of each task
+ *          - "equal": each task takes around 5ms
+ *          - "equal_big": each tasks takes around 50ms
+ *          - "random": each task takes around 1ms and 10ms
+ *          - "random_big": each task takes around 10ms and 100ms
+ *          - "increasing": the tasks durations increases from 1ms to 10ms
+ *          - "increasing_big": the tasks durations increases from 10ms to 100ms
+ *          - "decreasing": the tasks durations decreases from 10ms to 1ms
+ *          - "decreasing_big": the tasks durations decreases from 100ms to 10ms
+ *      - scheduler: string that specifies the type of dynamic scheduler
+ *          - "chunk": The scheduler gives to each worker a fixed number of tasks
+ *          The size of the chunk is specified in the <first_parameter_scheduler>, the <second_parameter_scheduler> must be blank.
+ *          - "guided": The scheduler gives to each worker a proportional number of the remaining tasks.
+ *          Both the <first_parameter_scheduler> and the <second_parameter_scheduler> must be blank.
+ *          - "trapezoidal": The scheduler gives to each worker a decreasing number of tasks.
+ *          The initial size of the chunk is specified in the <first_parameter_scheduler>.
+ *          The diference between chunk sizes is specified in the <second_parameter_scheduler>.
+ * 
  */
 
 #include "mpi.h"
@@ -23,11 +39,12 @@
 #include <string.h>
 #include <time.h>
 
-#define EQUAL_TIME 5
-#define RANDOM_MIN_TIME 1
-#define RANDOM_MAX_TIME 10
-#define INITIAL_TIME 1
-#define FINAL_TIME 10
+#define EQUAL_TIME_SMALL 5
+#define INITIAL_TIME_SMALL 1
+#define FINAL_TIME_SMALL 10
+#define EQUAL_TIME_BIG 10 * EQUAL_TIME_SMALL
+#define INITIAL_TIME_BIG 10 * INITIAL_TIME_SMALL
+#define FINAL_TIME_BIG 10 * FINAL_TIME_SMALL
 
 typedef enum {
     SEND_N_TASKS,
@@ -76,7 +93,7 @@ int dynamic_chunk_scheduler(int num_procs, int num_tasks, int remaining_tasks, i
  * @return the number of tasks to be assigned to the next process
  */
 int dynamic_guided_scheduler(int num_procs, int num_tasks, int remaining_tasks, int Z, int k){
-    return (int) ceil(remaining_tasks/num_procs);
+    return (int) ceil(((double) remaining_tasks)/((double) num_procs));
 }
 
 /**
@@ -128,6 +145,7 @@ void populate_increasing_time_array(int *time_array, int num_tasks, int initial_
     }
 }
 
+
 void populate_random_time_array(int *time_array, int num_tasks, int min_time, int max_time) {
     
     /* Error control */
@@ -178,7 +196,7 @@ int master(int num_procs, int argc, char *argv[]) {
         MPI_Abort(MPI_COMM_WORLD, 1);
         return 0;
 
-    } else if (argc > 5) {
+    } else if (argc > 6) {
         fprintf(stderr, "\nERROR: Too many arguments \n");
         MPI_Abort(MPI_COMM_WORLD, 1);
         return 0;
@@ -212,7 +230,7 @@ int master(int num_procs, int argc, char *argv[]) {
 
     /* Get the type of tasks and populate the array */
     if (strcmp(argv[2], "random") == 0){
-        populate_random_time_array(time_array, num_tasks, RANDOM_MIN_TIME, RANDOM_MAX_TIME);
+        populate_random_time_array(time_array, num_tasks, INITIAL_TIME_SMALL, FINAL_TIME_SMALL);
 
         #ifdef DEBUG
         fprintf(stderr, "[Master] Time distribution of tasks: random. \n");
@@ -220,7 +238,7 @@ int master(int num_procs, int argc, char *argv[]) {
         #endif
 
     } else if (strcmp(argv[2], "equal") == 0) {
-        populate_equal_time_array(time_array, num_tasks, EQUAL_TIME);
+        populate_equal_time_array(time_array, num_tasks, EQUAL_TIME_SMALL);
 
         #ifdef DEBUG
         fprintf(stderr, "[Master] Time distribution of tasks: equal. \n");
@@ -228,12 +246,53 @@ int master(int num_procs, int argc, char *argv[]) {
         #endif
 
     } else if (strcmp(argv[2], "increasing") == 0) {
-        populate_increasing_time_array(time_array, num_tasks, INITIAL_TIME, FINAL_TIME);
+        populate_increasing_time_array(time_array, num_tasks, INITIAL_TIME_SMALL, FINAL_TIME_SMALL);
 
         #ifdef DEBUG
         fprintf(stderr, "[Master] Time distribution of tasks: increasing. \n");
         fflush(stderr);
         #endif
+        
+    } else if (strcmp(argv[2], "decreasing") == 0) {
+        populate_increasing_time_array(time_array, num_tasks, FINAL_TIME_SMALL, INITIAL_TIME_SMALL);
+
+        #ifdef DEBUG
+        fprintf(stderr, "[Master] Time distribution of tasks: increasing. \n");
+        fflush(stderr);
+        #endif
+
+    if (strcmp(argv[2], "random_big") == 0){
+        populate_random_time_array(time_array, num_tasks, INITIAL_TIME_BIG, FINAL_TIME_BIG);
+
+        #ifdef DEBUG
+        fprintf(stderr, "[Master] Time distribution of tasks: random. \n");
+        fflush(stderr);
+        #endif
+
+    } else if (strcmp(argv[2], "equal_big") == 0) {
+        populate_equal_time_array(time_array, num_tasks, EQUAL_TIME_BIG);
+
+        #ifdef DEBUG
+        fprintf(stderr, "[Master] Time distribution of tasks: equal. \n");
+        fflush(stderr);
+        #endif
+
+    } else if (strcmp(argv[2], "increasing_big") == 0) {
+        populate_increasing_time_array(time_array, num_tasks, INITIAL_TIME_BIG, FINAL_TIME_BIG);
+
+        #ifdef DEBUG
+        fprintf(stderr, "[Master] Time distribution of tasks: increasing. \n");
+        fflush(stderr);
+        #endif
+        
+    } else if (strcmp(argv[2], "decreasing_big") == 0) {
+        populate_increasing_time_array(time_array, num_tasks, FINAL_TIME_BIG, INITIAL_TIME_BIG);
+
+        #ifdef DEBUG
+        fprintf(stderr, "[Master] Time distribution of tasks: increasing. \n");
+        fflush(stderr);
+        #endif
+        
         
     } else {
         fprintf(stderr, "\nERROR: Not recognised the type of task \n");
@@ -523,6 +582,9 @@ int follower(int num_local) {
     int n_tasks_received;
     int *tasks_received;
 
+    /* Measure time */
+    double initial_time, final_time;
+
     /* Infinite loop, it stops when we get a kill message */
     while(1){
 
@@ -564,7 +626,7 @@ int follower(int num_local) {
             fprintf(stderr, "[Node %d] Simulating task %d of %d ms. \n", num_local, i, tasks_received[i]);
             fflush(stderr);
             #endif
-            usleep(tasks_received[i]);
+            usleep(tasks_received[i] * 1000);
         }
 
         #ifdef DEBUG
